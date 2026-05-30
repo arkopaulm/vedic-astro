@@ -113,7 +113,9 @@ with st.sidebar.form(key="birth_details_form"):
     submit_button = st.form_submit_button(label="Compute Precision Chart")
 
 # --- Runtime Input Parsing Layer ---
-time_error = False
+#  CORRECT
 try:
     parsed_time = datetime.strptime(time_string.strip(), "%H:%M").time()
 except ValueError:
+    time_error = True
+    parsed_time = time(8, 30)
