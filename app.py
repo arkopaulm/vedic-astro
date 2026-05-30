@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date, time
+from geopy.geocoders import Nominatim
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -10,9 +11,11 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- Title and Description ---
+# Initialize Geolocator (Using an agent string to prevent rate-blocking)
+geolocator = Nominatim(user_agent="jyotish_enterprise_poc")
+
 st.title("🌌 Vedic Astrology & Timeline Advisory Dashboard")
-st.markdown("This Proof of Concept (POC) acts as a high-fidelity playground to evaluate calculations, chart layouts, and timeline-based advisory components.")
+st.markdown("This updated POC uses dynamic location string resolution instead of manual coordinate entries.")
 st.write("---")
 
 # --- Sidebar: Birth Data Input Configuration ---
@@ -20,24 +23,54 @@ st.sidebar.header("📥 Birth Metrics Intake")
 with st.sidebar.form(key="birth_details_form"):
     profile_name = st.text_input("Profile Name", value="Aditya Narayan")
     
-    # Combined date and time picker modules
+    # Date Input Matrix
     birth_date = st.date_input("Date of Birth", value=date(1994, 8, 18))
-    birth_time = st.time_input("Time of Birth", value=time(8, 30))
     
-    st.markdown("##### Geographic Coordinates")
-    latitude = st.number_input("Latitude (e.g., Mumbai: 19.076)", value=19.0760, format="%.4f")
-    longitude = st.number_input("Longitude (e.g., Mumbai: 72.877)", value=72.8777, format="%.4f")
-    tz_offset = st.number_input("Timezone Offset (Hours from GMT, e.g., IST = 5.5)", value=5.5, step=0.5)
+    # 🕒 Keyboard-Driven Time Input Instead of a Picklist
+    # Instructs users to use standard keyboard entry to prevent scrolling dropdown menus
+    time_string = st.text_input("Time of Birth (24-Hour Format HH:MM)", value="08:30", help="Type using your keyboard. Example: 08:30 for AM, 20:45 for PM")
     
-    # Form submission anchor
+    # 📍 Text-based Location Input Replacing Coordinates
+    location_input = st.text_input("Place of Birth", value="Mumbai, India", help="Type City/Town name clearly.")
+    
+    # Form submission anchor (Fixed syntax typo)
     submit_button = st.form_submit_button(label="Generate Horoscope Matrix")
 
+# --- Geocoding Processing Layer ---
+latitude, longitude, resolved_address = 19.0760, 72.8777, "Mumbai, Maharashtra, India"
+time_error = False
+
+# Validate and parse the typed time string safely
+try:
+    parsed_time = datetime.strptime(time_string.strip(), "%H:%M").time()
+except ValueError:
+    time_error = True
+    parsed_time = time(8, 30)
+
+if submit_button:
+    if time_error:
+        st.sidebar.error("❌ Invalid Time Format. Please type using HH:MM format (e.g., 14:20).")
+    else:
+        with st.spinner("Resolving coordinates from location..."):
+            try:
+                # Call Geocoding service to process string input
+                location_data = geolocator.geocode(location_input, timeout=10)
+                if location_data:
+                    latitude = location_data.latitude
+                    longitude = location_data.longitude
+                    resolved_address = location_data.address
+                    st.sidebar.success(f"📍 Found: {resolved_address[:35]}...")
+                else:
+                    st.sidebar.error("⚠️ Location not found. Using default coordinates (Mumbai).")
+            except Exception:
+                st.sidebar.warning("⚠️ Geocoding service busy. Using default coordinates.")
+
 # --- Mock Calculation Data Factory ---
-# In a fully wired production app, this function connects to your backend FastAPI endpoints or native jyotish libraries.
-def get_mock_astrology_payload():
+def get_mock_astrology_payload(lat, lon):
     return {
         "ascendant": "Leo (Simha)",
         "panchanga": {"Nakshatra": "Purva Phalguni", "Tithi": "Shukla Dwadashi", "Yogi Planet": "Venus"},
+        "coordinates_used": f"{lat:.4f}° N, {lon:.4f}° E",
         "planets": [
             {"Planet": "Ascendant", "Sign": "Leo", "Degree": "22° 40'", "House": 1},
             {"Planet": "Sun", "Sign": "Taurus", "Degree": "14° 25'", "House": 10},
@@ -51,81 +84,34 @@ def get_mock_astrology_payload():
             {"Planet": "Ketu", "Sign": "Aries", "Degree": "24° 08'", "House": 9}
         ],
         "dashas": [
-            {"Dasha Lord": "Jupiter", "Start Year": 2015, "End Year": 2031, "Theme": "Expansion, Knowledge, & Asset Accumulation"},
-            {"Dasha Lord": "Saturn", "Start Year": 2031, "End Year": 2050, "Theme": "Discipline, Organizational Structure, & Karmic Refinement"},
-            {"Dasha Lord": "Mercury", "Start Year": 2050, "End Year": 2067, "Theme": "Commerce, Communication, & System Architecture"}
+            {"Dasha Lord": "Jupiter", "Start Year": 2015, "End Year": 2031, "Theme": "Expansion & Knowledge"},
+            {"Dasha Lord": "Saturn", "Start Year": 2031, "End Year": 2050, "Theme": "Discipline & Structure"},
+            {"Dasha Lord": "Mercury", "Start Year": 2050, "End Year": 2067, "Theme": "Commerce & Systems"}
         ]
     }
 
-# --- Main Dashboard Execution Workspace ---
-if submit_button or 'initialized' not in st.session_state:
-    st.session_state['initialized'] = True
+# --- UI Render Matrix ---
+if not time_error:
+    data = get_mock_astrology_payload(latitude, longitude)
     
-    # Fetch computed dataset
-    data = get_mock_astrology_payload()
-    
-    # --- Layout Split: Metrics Grid ---
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Ascendant (Lagna)", data["ascendant"])
     col2.metric("Birth Star (Nakshatra)", data["panchanga"]["Nakshatra"])
-    col3.metric("Lunar Phase (Tithi)", data["panchanga"]["Tithi"])
-    col4.metric("Financial Yogi Planet", data["panchanga"]["Yogi Planet"])
+    col3.metric("Resolved Location Coordinates", data["coordinates_used"])
+    col4.metric("Calculated Time Asset", f"{parsed_time.strftime('%I:%M %p')}")
     
     st.write("---")
     
-    # --- Layout Split: Tabular Coordinates & Chart Layout Preview ---
     left_panel, right_panel = st.columns([3, 2])
-    
     with left_panel:
-        st.subheader("🪐 Planetary Longitudes & House Placements")
-        df_planets = pd.DataFrame(data["planets"])
-        st.dataframe(df_planets, use_container_width=True, hide_index=True)
+        st.subheader("🪐 Planetary Positions")
+        st.dataframe(pd.DataFrame(data["planets"]), use_container_width=True, hide_index=True)
         
     with right_panel:
-        st.subheader("📐 Chart Layout Matrix Preview")
-        # Creating a conceptual text-based 3x3 North/South style structural abstraction grid
+        st.subheader("📐 Chart Grid Preview")
         chart_grid = [
             ["House 12\n(Cancer)\nMercury", "House 1\n(Leo)\nAsc, Moon", "House 2\n(Virgo)\nVenus"],
-            ["House 11\n(Gemini)\nMars", "🌌 D1 Kundali\nCore Chart", "House 3\n(Libra)\nJupiter, Rahu"],
+            ["House 11\n(Gemini)\nMars", "🌌 D1 Kundali", "House 3\n(Libra)\nJupiter, Rahu"],
             ["House 10\n(Taurus)\nSun", "House 9\n(Aries)\nKetu", "House 8\n(Pisces)\nEmpty"]
         ]
-        df_grid = pd.DataFrame(chart_grid)
-        st.table(df_grid)
-
-    st.write("---")
-
-    # --- Layout Split: Timeline Dasha Analytics & AI Advisory Layer ---
-    st.subheader("⏳ Life-Timeline Dynamic Period Analytics")
-    st.markdown("Adjust the dynamic slider to isolate your exact position across current or future major *Mahadasha* cycles.")
-    
-    # Convert data directly into dataframe for charting utilities
-    df_dashas = pd.DataFrame(data["dashas"])
-    
-    # Interactive timeline range tracking component
-    selected_year = st.slider("Target Analysis Year", min_value=2015, max_value=2065, value=2026, step=1)
-    
-    # Filter the active dasha based on the selected year slider configuration
-    active_row = df_dashas[(selected_year >= df_dashas["Start Year"]) & (selected_year <= df_dashas["End Year"])]
-    
-    if not active_row.empty:
-        active_lord = active_row["Dasha Lord"].values[0]
-        active_theme = active_row["Theme"].values[0]
-        end_year = active_row["End Year"].values[0]
-        
-        st.info(f"👉 **Active Mahadasha in {selected_year}: {active_lord} Period** (Ends in {end_year})")
-        
-        # UI Presentation Split for Focus Area Advisories
-        st.write("#### 🎯 Contextual Strategic Advisories")
-        focus_area = st.tabs(["💼 Career & Enterprise", "🌱 Wellness & Vitality", "⚖️ Risk Mitigation"])
-        
-        with focus_area[0]:
-            if active_lord == "Jupiter":
-                st.success("**Expansion Window:** Favorable alignment for tech architecture design, leading cross-functional squads, or scaling commercial side projects. Trust high-level abstract logic over rigid processes.")
-            elif active_lord == "Saturn":
-                st.warning("**Consolidation Window:** Focus on systems optimization, code debt cleanup, and process refactoring rather than aggressive hyper-scaling. Growth is driven through foundational discipline.")
-                
-        with focus_area[1]:
-            st.write(f"**Holistic Focus:** This {active_lord} cycle emphasizes balancing professional output with restorative longevity habits. Keep nutritional guidelines aligned with internal energy trends during this phase.")
-            
-        with focus_area[2]:
-            st.markdown(f"> 💡 **Strategic Operational Guardrail:** During the {active_lord} cycle, pay special attention to the foundational core themes (*{active_theme}*). Avoid high-risk, unvetted capital investments when transitioning between major planetary periods.")
+        st.table(pd.DataFrame(chart_grid))
