@@ -1,7 +1,13 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date, time
-from geopy.geocoders import Nominatim
+
+# --- Defensive Dependency Handling ---
+# Ensures the app doesn't crash on Streamlit Cloud if the container hot-reloads
+try:
+    from geopy.geocoders import Nominatim
+except ModuleNotFoundError:
+    st.rerun()
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -11,11 +17,11 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize Geolocator (Using an agent string to prevent rate-blocking)
-geolocator = Nominatim(user_agent="jyotish_enterprise_poc")
+# Initialize Geolocator with a dedicated user agent to prevent rate limits
+geolocator = Nominatim(user_agent="jyotish_enterprise_poc_v2")
 
 st.title("🌌 Vedic Astrology & Timeline Advisory Dashboard")
-st.markdown("This updated POC uses dynamic location string resolution instead of manual coordinate entries.")
+st.markdown("This revised POC features dynamic text location resolution, clean keyboard time entry, and updated layout constraints.")
 st.write("---")
 
 # --- Sidebar: Birth Data Input Configuration ---
@@ -23,24 +29,28 @@ st.sidebar.header("📥 Birth Metrics Intake")
 with st.sidebar.form(key="birth_details_form"):
     profile_name = st.text_input("Profile Name", value="Aditya Narayan")
     
-    # Date Input Matrix
+    # Calendar Date Picker
     birth_date = st.date_input("Date of Birth", value=date(1994, 8, 18))
     
-    # 🕒 Keyboard-Driven Time Input Instead of a Picklist
-    # Instructs users to use standard keyboard entry to prevent scrolling dropdown menus
-    time_string = st.text_input("Time of Birth (24-Hour Format HH:MM)", value="08:30", help="Type using your keyboard. Example: 08:30 for AM, 20:45 for PM")
+    # 🕒 Keyboard-Driven Time Input (Avoids long scrollable picklists)
+    time_string = st.text_input(
+        "Time of Birth (24-Hour Format HH:MM)", 
+        value="08:30", 
+        help="Type directly using your keyboard. Example: 08:30 for AM, 20:45 for PM"
+    )
     
-    # 📍 Text-based Location Input Replacing Coordinates
+    # 📍 Text-based Location Input (Replaces manual coordinates entry)
     location_input = st.text_input("Place of Birth", value="Mumbai, India", help="Type City/Town name clearly.")
     
-    # Form submission anchor (Fixed syntax typo)
+    # Form submission anchor
     submit_button = st.form_submit_button(label="Generate Horoscope Matrix")
 
-# --- Geocoding Processing Layer ---
+# --- Geocoding & Validation Processing Layer ---
+# Default safe fallbacks (Mumbai)
 latitude, longitude, resolved_address = 19.0760, 72.8777, "Mumbai, Maharashtra, India"
 time_error = False
 
-# Validate and parse the typed time string safely
+# Validate and parse the typed time string safely before calculation execution
 try:
     parsed_time = datetime.strptime(time_string.strip(), "%H:%M").time()
 except ValueError:
@@ -63,13 +73,13 @@ if submit_button:
                 else:
                     st.sidebar.error("⚠️ Location not found. Using default coordinates (Mumbai).")
             except Exception:
-                st.sidebar.warning("⚠️ Geocoding service busy. Using default coordinates.")
+                st.sidebar.warning("⚠️ Geocoding service busy or timed out. Using default coordinates.")
 
 # --- Mock Calculation Data Factory ---
 def get_mock_astrology_payload(lat, lon):
     return {
         "ascendant": "Leo (Simha)",
-        "panchanga": {"Nakshatra": "Purva Phalguni", "Tithi": "Shukla Dwadashi", "Yogi Planet": "Venus"},
+        "panchanga": {"Bakshatra": "Purva Phalguni", "Tithi": "Shukla Dwadashi", "Yogi Planet": "Venus"},
         "coordinates_used": f"{lat:.4f}° N, {lon:.4f}° E",
         "planets": [
             {"Planet": "Ascendant", "Sign": "Leo", "Degree": "22° 40'", "House": 1},
@@ -90,10 +100,11 @@ def get_mock_astrology_payload(lat, lon):
         ]
     }
 
-# --- UI Render Matrix ---
+# --- UI Render Workspace Matrix ---
 if not time_error:
     data = get_mock_astrology_payload(latitude, longitude)
     
+    # KPI Metrics Header Bar
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Ascendant (Lagna)", data["ascendant"])
     col2.metric("Birth Star (Nakshatra)", data["panchanga"]["Nakshatra"])
@@ -102,10 +113,13 @@ if not time_error:
     
     st.write("---")
     
+    # Main Panels Split
     left_panel, right_panel = st.columns([3, 2])
+    
     with left_panel:
         st.subheader("🪐 Planetary Positions")
-        st.dataframe(pd.DataFrame(data["planets"]), use_container_width=True, hide_index=True)
+        # Fixed: Replaced use_container_width=True with width="stretch" to resolve deprecation
+        st.dataframe(pd.DataFrame(data["planets"]), width="stretch", hide_index=True)
         
     with right_panel:
         st.subheader("📐 Chart Grid Preview")
@@ -115,3 +129,34 @@ if not time_error:
             ["House 10\n(Taurus)\nSun", "House 9\n(Aries)\nKetu", "House 8\n(Pisces)\nEmpty"]
         ]
         st.table(pd.DataFrame(chart_grid))
+
+    st.write("---")
+
+    # Timeline Section
+    st.subheader("⏳ Life-Timeline Dynamic Period Analytics")
+    df_dashas = pd.DataFrame(data["dashas"])
+    
+    selected_year = st.slider("Target Analysis Year", min_value=2015, max_value=2065, value=2026, step=1)
+    active_row = df_dashas[(selected_year >= df_dashas["Start Year"]) & (selected_year <= df_dashas["End Year"])]
+    
+    if not active_row.empty:
+        active_lord = active_row["Dasha Lord"].values[0]
+        active_theme = active_row["Theme"].values[0]
+        end_year = active_row["End Year"].values[0]
+        
+        st.info(f"👉 **Active Mahadasha in {selected_year}: {active_lord} Period** (Ends in {end_year})")
+        
+        st.write("#### 🎯 Contextual Strategic Advisories")
+        focus_area = st.tabs(["💼 Career & Enterprise", "🌱 Wellness & Vitality", "⚖️ Risk Mitigation"])
+        
+        with focus_area[0]:
+            if active_lord == "Jupiter":
+                st.success("**Expansion Window:** Favorable alignment for tech architecture design, leading cross-functional squads, or scaling commercial side projects.")
+            elif active_lord == "Saturn":
+                st.warning("**Consolidation Window:** Focus on systems optimization, code debt cleanup, and process refactoring rather than aggressive hyper-scaling.")
+                
+        with focus_area[1]:
+            st.write(f"**Holistic Focus:** This {active_lord} cycle emphasizes balancing professional output with restorative longevity habits.")
+            
+        with focus_area[2]:
+            st.markdown(f"> 💡 **Strategic Operational Guardrail:** During the {active_lord} cycle, pay special attention to the foundational core themes (*{active_theme}*).")
