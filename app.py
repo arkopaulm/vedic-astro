@@ -49,7 +49,7 @@ def get_mock_astrology_payload(lat, lon):
     """Caches chart generation data to prevent redundant data processing on UI shifts."""
     return {
         "ascendant": "Leo (Simha)",
-        "panchanga": {"Bakshatra": "Purva Phalguni", "Tithi": "Shukla Dwadashi", "Yogi Planet": "Venus"},
+        "panchanga": {"Nakshatra": "Purva Phalguni", "Tithi": "Shukla Dwadashi", "Yogi Planet": "Venus"},
         "coordinates_used": f"{lat:.4f}° N, {lon:.4f}° E",
         "planets": [
             {"Planet": "Ascendant", "Sign": "Leo", "Degree": "22° 40'", "House": 1},
