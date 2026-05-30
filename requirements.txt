@@ -1,4 +1,2 @@
-streamlit
-pandas
 geopy==2.4.1
 flatlib==0.2.3
