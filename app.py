@@ -30,7 +30,7 @@ with st.sidebar.form(key="birth_details_form"):
     tz_offset = st.number_input("Timezone Offset (Hours from GMT, e.g., IST = 5.5)", value=5.5, step=0.5)
     
     # Form submission anchor
-    submit_button = st.form_submit_form_button(label="Generate Horoscope Matrix")
+    submit_button = st.form_submit_button(label="Generate Horoscope Matrix")
 
 # --- Mock Calculation Data Factory ---
 # In a fully wired production app, this function connects to your backend FastAPI endpoints or native jyotish libraries.
