@@ -1,1 +1,3 @@
-
+geopy==2.4.1
+flatlib==0.2.3
+pyswisseph-packaged==2.0.0.post2
