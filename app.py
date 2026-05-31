@@ -23,7 +23,7 @@ st.set_page_config(
 def get_coordinates_from_location(location_string):
     """Resolves typed location text inputs using cached geographic maps."""
     try:
-        geolocator = Nominatim(user_agent="jyotish_enterprise_engine_v5")
+        geolocator = Nominatim(user_agent="jyotish_enterprise_engine_v6")
         location_data = geolocator.geocode(location_string, timeout=5)
         if location_data:
             return {
@@ -39,7 +39,7 @@ def get_coordinates_from_location(location_string):
 @st.cache_data
 def compute_live_astrology(profile_name, year, month, day, hour, minute, lat, lon, tz_str):
     """Computes high-precision planet positions natively with native Kerykeion attributes."""
-    # Instantiating pure Python structures via localized coordinates to avoid background API locks
+    # Instantiate the Kerykeion subject engine
     subject = AstrologicalSubject(
         profile_name, 
         year, month, day, 
@@ -53,29 +53,37 @@ def compute_live_astrology(profile_name, year, month, day, hour, minute, lat, lo
     planet_list = []
     target_bodies = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'rahu', 'ketu']
     
-    # Extract calculated Ascendant position data
+    # Corrected: Read directly from object attributes instead of using dict .get() fields
     planet_list.append({
         "Planet": "Ascendant (Lagna)",
-        "Sign": subject.ascendant.get('sign', 'Unknown'),
-        "Degree": f"{int(subject.ascendant.get('position', 0)):02d}°",
+        "Sign": getattr(subject.ascendant, 'sign', 'Unknown'),
+        "Degree": f"{int(getattr(subject.ascendant, 'position', 0)):02d}°",
         "House": 1
     })
     
     # Extract core planetary array positions
     for body in target_bodies:
         p_data = getattr(subject, body)
-        # Parse the house string attribute safely into integers (e.g., "12th House" -> 12)
-        house_raw = p_data.get('house', '1')
-        house_num = int(''.join(filter(str.isdigit, str(house_raw))) or 1)
+        
+        # Read properties directly using object attribute mapping
+        p_sign = getattr(p_data, 'sign', 'Unknown')
+        p_pos = getattr(p_data, 'position', 0)
+        p_house = getattr(p_data, 'house', 1)
+        
+        # Safely convert houses to numerical metrics if presented as a string or number
+        try:
+            house_num = int(''.join(filter(str.isdigit, str(p_house))) or 1)
+        except ValueError:
+            house_num = 1
         
         planet_list.append({
             "Planet": body.capitalize(),
-            "Sign": p_data.get('sign', 'Unknown'),
-            "Degree": f"{int(p_data.get('position', 0)):02d}°",
+            "Sign": p_sign,
+            "Degree": f"{int(p_pos):02d}°",
             "House": house_num
         })
         
-    return planet_list, subject.ascendant.get('sign', 'Unknown')
+    return planet_list, getattr(subject.ascendant, 'sign', 'Unknown')
 
 # --- UI Setup ---
 st.title("🌌 Vedic Astrology Precision Engine")
