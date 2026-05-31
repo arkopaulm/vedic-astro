@@ -5,9 +5,12 @@ from datetime import datetime, date, time
 # --- Production Dependency Mapping ---
 try:
     from geopy.geocoders import Nominatim
-    from kerykeion import AstrologicalSubject
+    from flatlib.datetime import Datetime
+    from flatlib.geopos import GeoPos
+    from flatlib.chart import Chart
+    from flatlib import const
 except ModuleNotFoundError:
-    st.error("Booting core calculation engine layers. Please give the server a moment and refresh.")
+    st.error("Booting core Vedic calculation engine layers. Please give the server a moment and refresh.")
     st.stop()
 
 # --- Page Configuration ---
@@ -23,7 +26,7 @@ st.set_page_config(
 def get_coordinates_from_location(location_string):
     """Resolves typed location text inputs using cached geographic maps."""
     try:
-        geolocator = Nominatim(user_agent="jyotish_enterprise_engine_v8")
+        geolocator = Nominatim(user_agent="jyotish_enterprise_engine_v9")
         location_data = geolocator.geocode(location_string, timeout=5)
         if location_data:
             return {
@@ -37,96 +40,52 @@ def get_coordinates_from_location(location_string):
 
 
 @st.cache_data
-def compute_live_astrology(profile_name, year, month, day, hour, minute, lat, lon, tz_str):
-    """Computes high-precision planet positions by inspecting the object dict safely."""
-    subject = AstrologicalSubject(
-        profile_name, 
-        year, month, day, 
-        hour, minute, 
-        lat=lat, 
-        lng=lon, 
-        tz_str=tz_str,
-        city="Target"
-    )
+def compute_live_astrology(year, month, day, hour, minute, lat, lon, tz_offset):
+    """Runs high-precision astronomical calculations using the true Lahiri Sidereal Zodiac."""
+    time_str = f"{hour:02d}:{minute:02d}"
+    date_str = f"{year}/{month:02d}/{day:02d}"
     
-    # 🛠️ Version-Agnostic extraction: Use Python's native object dictionary mapping
-    obj_data = getattr(subject, '__dict__', {})
+    # Flatlib expects inverted offsets to align with its internal geographic tracking
+    formatted_tz = -tz_offset 
+    
+    # Initialize engine timing structures
+    dt = Datetime(date_str, time_str, formatted_tz)
+    pos = GeoPos(lat, lon)
+    
+    # Force AYANAMSA_LAHIRI to convert from Western Tropical to true Vedic Sidereal
+    chart = Chart(dt, pos, ayanamsa=const.AYANAMSA_LAHIRI)
     
     planet_list = []
+    target_bodies = [
+        const.SUN, const.MOON, const.MERCURY, const.VENUS, 
+        const.MARS, const.JUPITER, const.SATURN, const.RAHU, const.KETU
+    ]
     
-    # 1. Parse the Ascendant (Lagna) safely
-    # Kerykeion stores calculated points either as dictionary attributes or nested objects
-    asc_sign = "Unknown"
-    if 'ascendant' in obj_data:
-        asc_obj = obj_data['ascendant']
-        if isinstance(asc_obj, dict):
-            asc_sign = asc_obj.get('sign', 'Unknown')
-            asc_pos = asc_obj.get('position', 0)
-        else:
-            asc_sign = getattr(asc_obj, 'sign', 'Unknown')
-            asc_pos = getattr(asc_obj, 'position', 0)
-            
-        planet_list.append({
-            "Planet": "Ascendant (Lagna)",
-            "Sign": asc_sign,
-            "Degree": f"{int(asc_pos):02d}°",
-            "House": 1
-        })
-    else:
-        # Fallback if attribute naming varies
-        asc_sign = getattr(subject, 'ascendant_sign', 'Leo')
-        planet_list.append({
-            "Planet": "Ascendant (Lagna)",
-            "Sign": asc_sign,
-            "Degree": "00°",
-            "House": 1
-        })
+    # Extract True Ascendant (Lagna)
+    asc = chart.get(const.ASC)
+    planet_list.append({
+        "Planet": "Ascendant (Lagna)",
+        "Sign": asc.sign,
+        "Degree": f"{int(asc.sign_lon):02d}° {int((asc.sign_lon % 1) * 60):02d}'",
+        "House": 1
+    })
     
-    # 2. Extract standard planets loop
-    target_bodies = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'rahu', 'ketu']
-    
+    # Map all planetary bodies to their true Vedic House placements
     for body in target_bodies:
-        # Check if it exists as a direct attribute on the subject
-        if hasattr(subject, body):
-            b_obj = getattr(subject, body)
-            if isinstance(b_obj, dict):
-                p_sign = b_obj.get('sign', 'Unknown')
-                p_pos = b_obj.get('position', 0)
-                p_house = b_obj.get('house', 1)
-            else:
-                p_sign = getattr(b_obj, 'sign', 'Unknown')
-                p_pos = getattr(b_obj, 'position', 0)
-                p_house = getattr(b_obj, 'house', 1)
-                
-            # Clean up the house output (extract integer digits if string returned)
-            try:
-                house_num = int(''.join(filter(str.isdigit, str(p_house))) or 1)
-            except ValueError:
-                house_num = 1
-                
-            planet_list.append({
-                "Planet": body.capitalize(),
-                "Sign": p_sign,
-                "Degree": f"{int(p_pos):02d}°",
-                "House": house_num
-            })
-            
-    # If planet list generation failed to find attributes, run a safe structure out
-    if len(planet_list) <= 1:
-        # Fallback framework to prevent crash loops
-        for body in target_bodies:
-            planet_list.append({
-                "Planet": body.capitalize(),
-                "Sign": "Taurus" if body == 'sun' else "Leo",
-                "Degree": "15°",
-                "House": 4 if body == 'sun' else 1
-            })
-            
-    return planet_list, asc_sign
+        obj = chart.get(body)
+        house_num = chart.houses.getHouseNum(obj.lon)
+        planet_list.append({
+            "Planet": body.capitalize() if body != const.RAHU and body != const.KETU else body,
+            "Sign": obj.sign,
+            "Degree": f"{int(obj.sign_lon):02d}° {int((obj.sign_lon % 1) * 60):02d}'",
+            "House": int(house_num)
+        })
+        
+    return planet_list, asc.sign
 
 # --- UI Setup ---
 st.title("🌌 Vedic Astrology Precision Engine")
-st.markdown("This live dashboard uses pure-Python astronomical positioning algorithms to evaluate exact real-time charts.")
+st.markdown("This live dashboard runs true **Lahiri Sidereal** positioning algorithms to evaluate exact real-time charts.")
 st.write("---")
 
 # --- Sidebar Inputs ---
@@ -136,12 +95,7 @@ with st.sidebar.form(key="birth_details_form"):
     birth_date = st.date_input("Date of Birth", value=date(1994, 8, 18))
     time_string = st.text_input("Time of Birth (24-Hour Format HH:MM)", value="08:30")
     location_input = st.text_input("Place of Birth", value="Mumbai, India")
-    
-    timezone_input = st.selectbox(
-        "Timezone Location Context",
-        ["Asia/Kolkata", "Europe/London", "America/New_York", "Europe/Andorra", "Asia/Dubai", "Australia/Sydney"],
-        index=0
-    )
+    tz_offset = st.number_input("Timezone Offset (Hours from GMT, e.g. IST = 5.5)", value=5.5, step=0.5)
     
     submit_button = st.form_submit_button(label="Compute Precision Chart")
 
@@ -157,12 +111,11 @@ latitude = geo_res["latitude"]
 longitude = geo_res["longitude"]
 resolved_address = geo_res["address"]
 
-# Process data elements
+# Process real math sky locations via Sidereal Matrix
 calculated_planets, calculated_ascendant = compute_live_astrology(
-    profile_input,
     birth_date.year, birth_date.month, birth_date.day,
     parsed_time.hour, parsed_time.minute,
-    latitude, longitude, timezone_input
+    latitude, longitude, tz_offset
 )
 
 if submit_button:
@@ -170,9 +123,9 @@ if submit_button:
 
 # --- Metrics Header Grid View ---
 col1, col2, col3 = st.columns(3)
-col1.metric("Calculated Ascendant (Lagna)", calculated_ascendant)
+col1.metric("Vedic Ascendant (Lagna)", calculated_ascendant)
 col2.metric("True Coordinates Evaluated", f"{latitude:.4f}° N, {longitude:.4f}° E")
-col3.metric("Validated Time Zone Mapping", f"{parsed_time.strftime('%I:%M %p')} ({timezone_input})")
+col3.metric("Validated Ephemeris Time", f"{parsed_time.strftime('%I:%M %p')} (GMT{'+' if tz_offset >=0 else ''}{tz_offset})")
 
 st.write("---")
 
@@ -180,7 +133,7 @@ st.write("---")
 left_panel, right_panel = st.columns([3, 2])
 
 with left_panel:
-    st.subheader("🪐 Live Planetary Positions")
+    st.subheader("🪐 Live Planetary Positions (Lahiri Sidereal)")
     st.dataframe(pd.DataFrame(calculated_planets), width="stretch", hide_index=True)
     
 with right_panel:
