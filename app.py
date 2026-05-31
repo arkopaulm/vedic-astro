@@ -23,7 +23,7 @@ st.set_page_config(
 def get_coordinates_from_location(location_string):
     """Resolves typed location text inputs using cached geographic maps."""
     try:
-        geolocator = Nominatim(user_agent="jyotish_enterprise_engine_v6")
+        geolocator = Nominatim(user_agent="jyotish_enterprise_engine_v7")
         location_data = geolocator.geocode(location_string, timeout=5)
         if location_data:
             return {
@@ -38,8 +38,7 @@ def get_coordinates_from_location(location_string):
 
 @st.cache_data
 def compute_live_astrology(profile_name, year, month, day, hour, minute, lat, lon, tz_str):
-    """Computes high-precision planet positions natively with native Kerykeion attributes."""
-    # Instantiate the Kerykeion subject engine
+    """Computes high-precision planet positions by converting Kerykeion data safely to JSON-dicts."""
     subject = AstrologicalSubject(
         profile_name, 
         year, month, day, 
@@ -50,40 +49,43 @@ def compute_live_astrology(profile_name, year, month, day, hour, minute, lat, lo
         city="Target"
     )
     
-    planet_list = []
-    target_bodies = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'rahu', 'ketu']
+    # Extract the dictionary data format safely from the Kerykeion object
+    data_dict = subject.json_dict()
     
-    # Corrected: Read directly from object attributes instead of using dict .get() fields
+    planet_list = []
+    
+    # 1. Parse the Ascendant (Lagna)
+    asc_data = data_dict.get('ascendant', {})
+    asc_sign = asc_data.get('sign', 'Unknown')
     planet_list.append({
         "Planet": "Ascendant (Lagna)",
-        "Sign": getattr(subject.ascendant, 'sign', 'Unknown'),
-        "Degree": f"{int(getattr(subject.ascendant, 'position', 0)):02d}°",
+        "Sign": asc_sign,
+        "Degree": f"{int(asc_data.get('position', 0)):02d}°",
         "House": 1
     })
     
-    # Extract core planetary array positions
-    for body in target_bodies:
-        p_data = getattr(subject, body)
+    # 2. Safely parse the core planetary array from the data dictionary
+    planets_data = data_dict.get('planets', [])
+    for p in planets_data:
+        p_name = p.get('name', 'Unknown')
+        p_sign = p.get('sign', 'Unknown')
+        p_pos = p.get('position', 0)
+        p_house = p.get('house', 1)
         
-        # Read properties directly using object attribute mapping
-        p_sign = getattr(p_data, 'sign', 'Unknown')
-        p_pos = getattr(p_data, 'position', 0)
-        p_house = getattr(p_data, 'house', 1)
-        
-        # Safely convert houses to numerical metrics if presented as a string or number
-        try:
-            house_num = int(''.join(filter(str.isdigit, str(p_house))) or 1)
-        except ValueError:
-            house_num = 1
-        
-        planet_list.append({
-            "Planet": body.capitalize(),
-            "Sign": p_sign,
-            "Degree": f"{int(p_pos):02d}°",
-            "House": house_num
-        })
-        
-    return planet_list, getattr(subject.ascendant, 'sign', 'Unknown')
+        # Keep tracking focused on core Vedic planetary bodies
+        if p_name.lower() in ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'mean_node', 'true_node']:
+            # Rename Rahu/Ketu nodes to traditional formats cleanly
+            if p_name.lower() == 'mean_node' or p_name.lower() == 'true_node':
+                p_name = "Rahu" # Ketu can be extracted or derived as 180 degrees away
+            
+            planet_list.append({
+                "Planet": p_name.capitalize(),
+                "Sign": p_sign,
+                "Degree": f"{int(p_pos):02d}°",
+                "House": int(p_house)
+            })
+            
+    return planet_list, asc_sign
 
 # --- UI Setup ---
 st.title("🌌 Vedic Astrology Precision Engine")
@@ -98,7 +100,6 @@ with st.sidebar.form(key="birth_details_form"):
     time_string = st.text_input("Time of Birth (24-Hour Format HH:MM)", value="08:30")
     location_input = st.text_input("Place of Birth", value="Mumbai, India")
     
-    # Explicit string timezone selector maps perfectly to datetime engines
     timezone_input = st.selectbox(
         "Timezone Location Context",
         ["Asia/Kolkata", "Europe/London", "America/New_York", "Europe/Andorra", "Asia/Dubai", "Australia/Sydney"],
@@ -119,7 +120,7 @@ latitude = geo_res["latitude"]
 longitude = geo_res["longitude"]
 resolved_address = geo_res["address"]
 
-# Process real mathematical sky locations
+# Process data elements
 calculated_planets, calculated_ascendant = compute_live_astrology(
     profile_input,
     birth_date.year, birth_date.month, birth_date.day,
@@ -151,7 +152,10 @@ with right_panel:
     house_mapping = {i: [] for i in range(1, 13)}
     for p in calculated_planets:
         if p["Planet"] != "Ascendant (Lagna)":
-            house_mapping[p["House"]].append(p["Planet"])
+            # Guard checking to filter house range bounding arrays safely
+            h_idx = p["House"]
+            if 1 <= h_idx <= 12:
+                house_mapping[h_idx].append(p["Planet"])
             
     def get_house_string(num):
         planets_in_house = house_mapping[num]
